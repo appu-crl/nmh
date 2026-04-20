@@ -3470,6 +3470,7 @@ local function CreateValueInputRow(parent, labelText, valueKey, minVal, maxVal, 
         Create("UICorner", {CornerRadius = UDim.new(0, 8)}),
         boxStroke
     })
+    local inputFocused = false
     local function applyInput()
         local parsed = tonumber(input.Text)
         if not parsed then
@@ -3483,9 +3484,15 @@ local function CreateValueInputRow(parent, labelText, valueKey, minVal, maxVal, 
             onChanged(parsed)
         end
     end
-    input.FocusLost:Connect(applyInput)
+    input.Focused:Connect(function()
+        inputFocused = true
+    end)
+    input.FocusLost:Connect(function()
+        inputFocused = false
+        applyInput()
+    end)
     registerSliderDisplay(valueKey, function(value)
-        if not input:IsFocused() then
+        if not inputFocused then
             input.Text = tostring(math.floor((tonumber(value) or 0) + 0.5))
         end
     end)
