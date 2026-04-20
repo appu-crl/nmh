@@ -32,6 +32,7 @@ if not getgenv then getgenv = function() return _G end end
 local Enabled = {
     SpeedBoost        = false,
     LaggerCounter     = false,
+    K7SpeedBypass     = false,
     AntiRagdoll       = false,
     AutoMedusa        = false,
     Float             = false,
@@ -51,7 +52,6 @@ local Enabled = {
     SafeConfig        = false,
     LockFloatPosition = false,
     Taunt             = false,
-    TPRight           = false,
     Tracers           = false,
     MobileButtons     = true,
     BoxMobileButtons  = false,
@@ -71,6 +71,7 @@ local Values = {
     HOP_POWER            = 35,
     HOP_COOLDOWN         = 0.08,
     BatAimbotSpeed       = 60,
+    K7BypassPower        = 300000,
     StealPathSpeed       = 60,
     StealPathReturnSpeed = 29,
     TracerThickness      = 2,
@@ -158,6 +159,7 @@ local refreshAllBoxButtonStates = function() end
 -- Forward declarations for startup/reset logic
 local startSpeedBoost, stopSpeedBoost
 local startLaggerCounter, stopLaggerCounter
+local startK7SpeedBypass, stopK7SpeedBypass
 local startFloat, stopFloat
 local startSpamBat, stopSpamBat
 local startHelicopter, stopHelicopter
@@ -2279,6 +2281,35 @@ function stopLaggerCounter()
     LaggerCounterSnapshot = nil
 end
 
+local function getK7BypassLagAmount()
+    local power = math.clamp(tonumber(Values.K7BypassPower) or 300000, 10000, 500000)
+    local t = (power - 10000) / 490000
+    return t * 0.2
+end
+
+function startK7SpeedBypass()
+    Values.K7BypassPower = math.clamp(tonumber(Values.K7BypassPower) or 300000, 10000, 500000)
+    if Connections.k7SpeedBypass then
+        Connections.k7SpeedBypass:Disconnect()
+        Connections.k7SpeedBypass = nil
+    end
+    Connections.k7SpeedBypass = RunService.RenderStepped:Connect(function()
+        if not Enabled.K7SpeedBypass then return end
+        local lagAmount = getK7BypassLagAmount()
+        if lagAmount > 0 then
+            local startedAt = tick()
+            while tick() - startedAt < lagAmount do end
+        end
+    end)
+end
+
+function stopK7SpeedBypass()
+    if Connections.k7SpeedBypass then
+        Connections.k7SpeedBypass:Disconnect()
+        Connections.k7SpeedBypass = nil
+    end
+end
+
 local GuiParent = CoreGui
 pcall(function()
     if type(gethui) == "function" then
@@ -3387,6 +3418,88 @@ local function CreateActionButton(parent, labelText, callback, order)
     return row
 end
 
+local function CreateValueInputRow(parent, labelText, valueKey, minVal, maxVal, order, onChanged)
+    local row = Create("Frame", {
+        BackgroundColor3 = Color3.fromRGB(16, 18, 30),
+        Size = UDim2.new(1, -4, 0, TOGGLE_H),
+        LayoutOrder = order or 0,
+        BorderSizePixel = 0,
+        ZIndex = 6,
+        Parent = parent
+    }, {
+        Create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+        Create("UIStroke", {Color = PURPLE_DARK, Thickness = 1.4}),
+        Create("UIGradient", {
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(21, 29, 47)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 18, 31)),
+            }),
+            Rotation = 180
+        })
+    })
+    local rowStroke = row:FindFirstChildOfClass("UIStroke")
+    local label = Create("TextLabel", {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0.5, 0, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        Font = Enum.Font.GothamBold,
+        Text = labelText,
+        TextColor3 = Color3.fromRGB(244, 233, 255),
+        TextSize = FONT_TOGGLE,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 7,
+        Parent = row
+    })
+    local boxStroke = Create("UIStroke", {
+        Color = STARLIGHT,
+        Thickness = 1.2,
+        Transparency = 0.35
+    })
+    local input = Create("TextBox", {
+        BackgroundColor3 = Color3.fromRGB(24, 27, 44),
+        Size = UDim2.new(0, 92, 0, 24),
+        Position = UDim2.new(1, -100, 0.5, -12),
+        Font = Enum.Font.GothamBold,
+        Text = tostring(Values[valueKey]),
+        TextColor3 = Color3.fromRGB(245, 247, 255),
+        TextSize = 9,
+        ClearTextOnFocus = false,
+        ZIndex = 8,
+        Parent = row
+    }, {
+        Create("UICorner", {CornerRadius = UDim.new(0, 8)}),
+        boxStroke
+    })
+    local function applyInput()
+        local parsed = tonumber(input.Text)
+        if not parsed then
+            input.Text = tostring(Values[valueKey])
+            return
+        end
+        parsed = math.clamp(math.floor(parsed + 0.5), minVal, maxVal)
+        Values[valueKey] = parsed
+        input.Text = tostring(parsed)
+        if onChanged then
+            onChanged(parsed)
+        end
+    end
+    input.FocusLost:Connect(applyInput)
+    registerSliderDisplay(valueKey, function(value)
+        if not input:IsFocused() then
+            input.Text = tostring(math.floor((tonumber(value) or 0) + 0.5))
+        end
+    end)
+    registerThemeCallback(function(themePalette)
+        syncThemeLocals(themePalette)
+        if rowStroke then
+            rowStroke.Color = PURPLE_DARK
+        end
+        boxStroke.Color = STARLIGHT
+        label.TextColor3 = Color3.fromRGB(244, 233, 255)
+    end)
+    return row
+end
+
 local pbar = Instance.new("Frame")
 pbar.Size = UDim2.new(0, PBAR_W, 0, 44)
 pbar.Position = UDim2.new(0.5, -PBAR_W/2, 1, -110)
@@ -3545,6 +3658,13 @@ CreateToggle(ScrollFrame, "Lagger Counter Mode", "LaggerCounter", function(s)
     Enabled.LaggerCounter = s
     if s then startLaggerCounter() else stopLaggerCounter() end
 end, order) order += 1
+CreateToggle(ScrollFrame, "K7 Speed Bypass", "K7SpeedBypass", function(s)
+    Enabled.K7SpeedBypass = s
+    if s then startK7SpeedBypass() else stopK7SpeedBypass() end
+end, order) order += 1
+CreateValueInputRow(ScrollFrame, "K7 Power", "K7BypassPower", 10000, 500000, order, function(v)
+    Values.K7BypassPower = v
+end) order += 1
 CreateSlider(ScrollFrame, "Boost Speed", 1, 70, "BoostSpeed", function(v)
     Values.BoostSpeed = v
 end, order) order += 1
@@ -4284,9 +4404,11 @@ floatButtonReferences.Desync = CreateFloatingButton("Desync", "⚙️", UDim2.ne
     if state then startDesync() else stopDesync() end
 end, true)
 
-floatButtonReferences.TPRight = CreateFloatingButton("TP (right)", "⚙️", UDim2.new(1, -144, 0.5, -106), "TPRight", function(state)
-    teleportRight()
-end, false)
+floatButtonReferences.K7SpeedBypass = CreateFloatingButton("K7 Bypass", "⚙️", UDim2.new(1, -144, 0.5, -106), "K7SpeedBypass", function(state)
+    Enabled.K7SpeedBypass = state
+    if VisualSetters.K7SpeedBypass then VisualSetters.K7SpeedBypass(state, true) end
+    if state then startK7SpeedBypass() else stopK7SpeedBypass() end
+end, true)
 
 floatButtonReferences.Drop = CreateFloatingButton("Drop", "⚙️", UDim2.new(1, -144, 0.5, -190), "Drop", function(state)
     startWalkFling()
@@ -4320,6 +4442,7 @@ local function applySavedState()
     if floatButtonReferences.Platform then floatButtonReferences.Platform(Enabled.Platform or false) end
     if floatButtonReferences.BatAimbot then floatButtonReferences.BatAimbot(Enabled.BatAimbot or false) end
     if floatButtonReferences.Desync then floatButtonReferences.Desync(Enabled.Desync or false) end
+    if floatButtonReferences.K7SpeedBypass then floatButtonReferences.K7SpeedBypass(Enabled.K7SpeedBypass or false) end
     refreshAllBoxButtonStates()
 
     if Enabled.SpeedBoost then startSpeedBoost() else stopSpeedBoost() end
@@ -4337,6 +4460,7 @@ local function applySavedState()
         disableSpamBatFromAimbot()
     end
     if Enabled.Desync then startDesync() else stopDesync() end
+    if Enabled.K7SpeedBypass then startK7SpeedBypass() else stopK7SpeedBypass() end
     if Enabled.InfiniteJump then startInfiniteJump() else stopInfiniteJump() end
     if Enabled.Unwalk then startUnwalk() else stopUnwalk() end
     if Enabled.Vibrance then enablePurpleMoon() else disablePurpleMoon() end
@@ -4448,6 +4572,7 @@ Player.CharacterAdded:Connect(function()
     if Enabled.Helicopter then startHelicopter() end
     if Enabled.BatAimbot then stopBatAimbot() task.wait(0.1) startBatAimbot() end
     if Enabled.Desync then stopDesync() task.wait(0.1) startDesync() end
+    if Enabled.K7SpeedBypass then stopK7SpeedBypass() task.wait(0.1) startK7SpeedBypass() end
     if Enabled.InfiniteJump then stopInfiniteJump() task.wait(0.1) startInfiniteJump() end
     if Enabled.Tracers then startTracers() end
     if Enabled.Platform then stopPlatform() task.wait(0.1) startPlatform() end
